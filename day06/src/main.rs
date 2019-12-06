@@ -8,12 +8,61 @@ type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 fn main() -> Result<()> {
     let input = get_contents("input");
     dbg!(checksum(&input));
-
+    dbg!(min_transfers(&input));
     Ok(())
 }
 
+fn min_transfers(input: &str) -> usize {
+    let orbit_map = get_orbit_map(input);
+
+    let graph = create_tree_graph("COM", &orbit_map);
+
+    let path_you = find_path(&graph, "YOU").unwrap();
+    let path_san = find_path(&graph, "SAN").unwrap();
+
+    let mut path: Vec<&str> = Vec::new();
+
+    for el in &path_you {
+        if !path_san.contains(el) {
+            path.push(el);
+        }
+    }
+
+    for el in &path_san {
+        if !path_you.contains(el) {
+            path.push(el);
+        }
+    }
+
+    path.len() - 2
+}
+
+fn find_path(graph: &TreeGraph, destination: &str) -> Option<Vec<String>> {
+    let mut paths: Vec<Option<Vec<String>>> = Vec::new();
+    if graph.children.len() == 0 {
+        return None;
+    }
+    for child in &(graph.children) {
+        if child.node_name == destination {
+            paths.push(Some(vec![destination.to_string()]));
+        } else {
+            paths.push(find_path(&child, destination));
+        }
+    }
+    let mut paths: Vec<Vec<String>> = paths.into_iter().flatten().collect();
+    if paths.len() == 0 {
+        return None;
+    }
+    if paths.len() != 1 {
+        panic!();
+    }
+    let path = &mut paths[0];
+    path.push((&(graph.node_name)).to_string());
+    Some(path.to_vec())
+}
+
 fn checksum(input: &str) -> usize {
-    let orbit_map: HashMap<&str, Vec<&str>> = get_orbit_map(input);
+    let orbit_map = get_orbit_map(input);
 
     let graph = create_tree_graph("COM", &orbit_map);
 
@@ -81,8 +130,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() {
+    fn part1() {
         let input = get_contents("test_input");
         assert!(checksum(&input) == 42);
+    }
+
+    #[test]
+    fn part2() {
+        let input = get_contents("test_input2");
+        assert!(min_transfers(&input) == 4);
     }
 }
