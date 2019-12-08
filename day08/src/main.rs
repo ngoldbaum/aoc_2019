@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::error;
 use std::fs::File;
 use std::io::Read;
@@ -28,10 +29,7 @@ fn main() -> Result<()> {
     for i in 0..nlayers {
         let nzeros = data
             .slice(s![i, .., ..])
-            .mapv(|a| match a {
-                0 => 1,
-                _ => 0,
-            })
+            .mapv(|a| u32::try_from(a == 0).unwrap())
             .sum();
         if nzeros < min_zeros {
             min_zeros = dbg!(nzeros);
@@ -42,16 +40,8 @@ fn main() -> Result<()> {
     let sl = data.slice(s![index, .., ..]);
 
     dbg!(
-        sl.mapv(|a| match a {
-            1 => 1,
-            _ => 0,
-        })
-        .sum()
-            * sl.mapv(|a| match a {
-                2 => 1,
-                _ => 0,
-            })
-            .sum()
+        sl.mapv(|a| u32::try_from(a == 1).unwrap()).sum()
+            * sl.mapv(|a| u32::try_from(a == 2).unwrap()).sum()
     );
 
     let image = data.fold_axis(Axis(0), 2, |acc, x| {
