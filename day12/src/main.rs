@@ -1,14 +1,17 @@
+#[macro_use]
+extern crate lazy_static;
+
+use std::cmp::{max, min};
 use std::fs::File;
 use std::io::Read;
 
-#[macro_use]
-extern crate lazy_static;
 use itertools::Itertools;
 use regex::Regex;
 
 lazy_static! {
     static ref RE: Regex = Regex::new(r"<x=(.+), y=(.+), z=(.+)>").unwrap();
 }
+
 fn main() {
     let state = get_contents("input");
 
@@ -28,15 +31,38 @@ fn main() {
         })
         .collect();
 
-    let mut system = System::new(&positions);
+    let init_system = System::new(&positions.clone());
 
-    while system.time < 1000 {
-        system.print_state();
+    let mut periods = vec![0, 0, 0];
+
+    for ax in 0..3 {
+        let mut system = System::new(&positions);
         system.update();
+        while !system.state_equal(&init_system, ax) {
+            system.update();
+        }
+        periods[ax] = system.time + 1;
     }
 
-    system.print_state();
-    system.print_energy();
+    dbg!(periods.iter().fold(1, |acc, x| { lcm(acc, *x) }));
+}
+
+fn gcd(a: usize, b: usize) -> usize {
+    match ((a, b), (a & 1, b & 1)) {
+        ((x, y), _) if x == y => y,
+        ((0, x), _) | ((x, 0), _) => x,
+        ((x, y), (0, 1)) | ((y, x), (1, 0)) => gcd(x >> 1, y),
+        ((x, y), (0, 0)) => gcd(x >> 1, y >> 1) << 1,
+        ((x, y), (1, 1)) => {
+            let (x, y) = (min(x, y), max(x, y));
+            gcd((y - x) >> 1, x)
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn lcm(a: usize, b: usize) -> usize {
+    a * b / gcd(a, b)
 }
 
 fn get_contents(filename: &str) -> String {
@@ -75,6 +101,16 @@ impl System {
             });
         }
         ret
+    }
+
+    fn state_equal(&self, other: &System, ax: usize) -> bool {
+        for (sm, om) in self.moons.iter().zip(other.moons.iter()) {
+            if sm.position[ax] != om.position[ax] {
+                return false;
+            }
+        }
+
+        true
     }
 
     fn update(&mut self) {
