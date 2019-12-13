@@ -1,43 +1,59 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn main() {
     let program = get_contents("input");
 
     let mut game = ArcadeCabinet::from_program(&program);
 
-    let input: Vec<i64> = vec![];
+    let mut input: Vec<i64> = vec![];
 
-    let output_screen = game.run(input);
-
-    println!("{}", output_screen.trim());
-
-    dbg!(output_screen.chars().fold(0, |acc, x| acc
-        + match x {
-            '▩' => 1,
-            _ => 0,
-        }));
+    loop {
+        let output_screen = game.run(input);
+        print!("{}[2J", 27 as char);
+        println!("{}", output_screen.trim());
+        let paddle_position = game.find(3);
+        let ball_position = game.find(4);
+        if paddle_position < ball_position {
+            input = vec![1];
+        } else if paddle_position > ball_position {
+            input = vec![-1];
+        } else {
+            input = vec![0];
+        }
+        sleep(Duration::from_millis(17));
+    }
 }
 
 #[derive(Debug)]
 struct ArcadeCabinet {
     computer: IntCodeComputer,
+    screen: HashMap<(i64, i64), i64>,
+    score: i64,
 }
 
 impl ArcadeCabinet {
     fn from_program(program: &str) -> ArcadeCabinet {
         ArcadeCabinet {
             computer: IntCodeComputer::from_program(program),
+            screen: HashMap::new(),
+            score: 0,
         }
     }
 
     fn run(&mut self, init_input: Vec<i64>) -> String {
         let output = self.computer.run(&init_input);
-        let mut screen: HashMap<(i64, i64), i64> = HashMap::new();
 
         for tile_data in output.chunks(3) {
-            screen.insert((tile_data[0], tile_data[1]), tile_data[2]);
+            if (tile_data[0], tile_data[1]) == (-1, 0) {
+                self.score = tile_data[2];
+                continue;
+            }
+            self.screen
+                .insert((tile_data[0], tile_data[1]), tile_data[2]);
         }
 
         let mut maxx = 0i64;
@@ -45,7 +61,7 @@ impl ArcadeCabinet {
         let mut maxy = 0i64;
         let mut miny = 0i64;
 
-        for positions in screen.keys() {
+        for positions in self.screen.keys() {
             if positions.0 < minx {
                 minx = positions.0;
             }
@@ -62,10 +78,12 @@ impl ArcadeCabinet {
 
         let mut output_screen: String = String::new();
 
+        output_screen.push_str(&format!("Score = {}\n", self.score));
+
         for j in miny..maxy + 1 {
             for i in minx..maxx + 1 {
-                if screen.contains_key(&(i, j)) {
-                    output_screen.push(match screen[&(i, j)] {
+                if self.screen.contains_key(&(i, j)) {
+                    output_screen.push(match self.screen[&(i, j)] {
                         0 => ' ',
                         1 => '#',
                         2 => '▩',
@@ -80,6 +98,15 @@ impl ArcadeCabinet {
             output_screen.push_str("\n");
         }
         output_screen
+    }
+
+    fn find(&self, index: i64) -> i64 {
+        for (k, v) in &self.screen {
+            if *v == index {
+                return k.0;
+            }
+        }
+        panic!();
     }
 }
 
@@ -123,7 +150,10 @@ impl IntCodeComputer {
                 3 => {
                     let (_, addresses) = self.get_args(modes, 1);
                     let entry = self.instructions.entry(addresses[0]).or_insert(0);
-                    *entry = input.pop().unwrap();
+                    match input.pop() {
+                        Some(value) => *entry = value,
+                        None => return output,
+                    }
                     instruction_length = 2;
                 }
                 4 => {
