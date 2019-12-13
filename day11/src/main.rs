@@ -13,9 +13,11 @@ fn main() -> Result<()> {
     let mut robot = Robot {
         position: (0, 0),
         direction: Direction::North,
-        instructions: get_instructions(&contents),
-        counter: 0,
-        relative_base: 0,
+        computer: IntCodeComputer {
+            instructions: get_instructions(&contents),
+            counter: 0,
+            relative_base: 0,
+        },
     };
 
     let mut input = vec![1];
@@ -29,17 +31,9 @@ fn main() -> Result<()> {
     panel_colors.insert((0, 0), true);
 
     loop {
-        let (output, counter, relative_base, instructions) = run(
-            &mut robot.instructions,
-            &mut input,
-            robot.counter,
-            robot.relative_base,
-        );
-        robot.counter = counter;
-        robot.relative_base = relative_base;
-        robot.instructions = instructions.clone();
+        let output = robot.computer.run(&mut input);
         if output.len() == 0 {
-            if instructions[&robot.counter] != 99 {
+            if robot.computer.instructions[&robot.computer.counter] != 99 {
                 panic!();
             }
             break;
@@ -88,15 +82,15 @@ fn main() -> Result<()> {
     let nx = (maxx - minx + 1) as usize;
     let ny = (maxy - miny + 1) as usize;
 
-    let mut image: Array2<i64> = Array::zeros((nx, ny));
+    let mut image: Array2<i64> = Array::ones((nx, ny));
 
     for (p, c) in panel_colors {
         if c {
-            image[((p.0 - minx) as usize, (p.1 - miny) as usize)] = 1;
+            image[((p.0 - minx) as usize, (p.1 - miny) as usize)] = 0;
         }
     }
 
-    println!("{}", image);
+    println!("{}", image.t());
 
     Ok(())
 }
@@ -105,9 +99,7 @@ fn main() -> Result<()> {
 struct Robot {
     position: (i64, i64),
     direction: Direction,
-    instructions: HashMap<i64, i64>,
-    relative_base: i64,
-    counter: i64,
+    computer: IntCodeComputer,
 }
 
 #[derive(Debug)]
@@ -145,143 +137,141 @@ fn get_instructions(program: &str) -> HashMap<i64, i64> {
     h_instructions
 }
 
-fn run(
-    instructions: &mut HashMap<i64, i64>,
-    input: &mut Vec<i64>,
-    mut counter: i64,
-    mut relative_base: i64,
-) -> (Vec<i64>, i64, i64, HashMap<i64, i64>) {
-    let mut output: Vec<i64> = Vec::new();
-    while instructions[&counter] != 99 {
-        let instruction = instructions[&counter];
-        let mut instruction = instruction
-            .to_string()
-            .chars()
-            .map(|x| x.to_digit(10).unwrap())
-            .collect::<Vec<u32>>();
-        while instruction.len() < 5 {
-            instruction.insert(0, 0);
-        }
-        let opcode = 10 * instruction[3] + instruction[4];
-        let modes = &instruction[..3];
-        let instruction_length;
-        match opcode {
-            1 => {
-                let (args, addresses) = get_args(instructions, modes, counter, relative_base, 3);
-                let entry = instructions.entry(addresses[2]).or_insert(0);
-                *entry = args[0] + args[1];
-                instruction_length = 4;
-            }
-            2 => {
-                let (args, addresses) = get_args(instructions, modes, counter, relative_base, 3);
-                let entry = instructions.entry(addresses[2]).or_insert(0);
-                *entry = args[0] * args[1];
-                instruction_length = 4;
-            }
-            3 => {
-                let (_, addresses) = get_args(instructions, modes, counter, relative_base, 1);
-                let entry = instructions.entry(addresses[0]).or_insert(0);
-                *entry = input.pop().unwrap();
-                instruction_length = 2;
-            }
-            4 => {
-                let (args, _) = get_args(instructions, modes, counter, relative_base, 1);
-                output.push(args[0]);
-                if output.len() == 2 {
-                    counter += 2;
-                    return (output, counter, relative_base, instructions.clone());
-                }
-                instruction_length = 2;
-            }
-            5 => {
-                let (args, _) = get_args(instructions, modes, counter, relative_base, 2);
-                if args[0] != 0 {
-                    counter = args[1];
-                    instruction_length = 0;
-                } else {
-                    instruction_length = 3;
-                }
-            }
-            6 => {
-                let (args, _) = get_args(instructions, modes, counter, relative_base, 2);
-                if args[0] == 0 {
-                    counter = args[1];
-                    instruction_length = 0;
-                } else {
-                    instruction_length = 3;
-                }
-            }
-            7 => {
-                let (args, addresses) = get_args(instructions, modes, counter, relative_base, 3);
-                let res = match args[0] < args[1] {
-                    true => 1,
-                    false => 0,
-                };
-                let entry = instructions.entry(addresses[2]).or_insert(0);
-                *entry = res;
-                instruction_length = 4;
-            }
-            8 => {
-                let (args, addresses) = get_args(instructions, modes, counter, relative_base, 3);
-                let res = match args[0] == args[1] {
-                    true => 1,
-                    false => 0,
-                };
-                let entry = instructions.entry(addresses[2]).or_insert(0);
-                *entry = res;
-                instruction_length = 4;
-            }
-            9 => {
-                let (args, _) = get_args(instructions, modes, counter, relative_base, 1);
-                relative_base += args[0];
-                instruction_length = 2;
-            }
-            _ => panic!(),
-        }
-        counter += instruction_length;
-    }
-    (output, counter, relative_base, instructions.clone())
-}
-
-fn get_args(
-    instructions: &mut HashMap<i64, i64>,
-    modes: &[u32],
+#[derive(Debug)]
+struct IntCodeComputer {
+    instructions: HashMap<i64, i64>,
     counter: i64,
     relative_base: i64,
-    num_args: usize,
-) -> (Vec<i64>, Vec<i64>) {
-    let mut args: Vec<i64> = Vec::new();
-    let mut addresses: Vec<i64> = Vec::new();
-    for arg_count in 0..num_args {
-        let mut address = instructions[&(counter + arg_count as i64 + 1)];
-        let arg;
-        let mode = match arg_count {
-            0 => modes[2],
-            1 => modes[1],
-            2 => {
-                if modes[0] == 1 {
-                    panic!()
-                };
-                modes[0]
+}
+
+impl IntCodeComputer {
+    fn run(&mut self, input: &mut Vec<i64>) -> Vec<i64> {
+        let mut output: Vec<i64> = Vec::new();
+        while self.instructions[&self.counter] != 99 {
+            let instruction = self.instructions[&self.counter];
+            let mut instruction = instruction
+                .to_string()
+                .chars()
+                .map(|x| x.to_digit(10).unwrap())
+                .collect::<Vec<u32>>();
+            while instruction.len() < 5 {
+                instruction.insert(0, 0);
             }
-            _ => {
+            let opcode = 10 * instruction[3] + instruction[4];
+            let modes = &instruction[..3];
+            let instruction_length;
+            match opcode {
+                1 => {
+                    let (args, addresses) = self.get_args(modes, 3);
+                    let entry = self.instructions.entry(addresses[2]).or_insert(0);
+                    *entry = args[0] + args[1];
+                    instruction_length = 4;
+                }
+                2 => {
+                    let (args, addresses) = self.get_args(modes, 3);
+                    let entry = self.instructions.entry(addresses[2]).or_insert(0);
+                    *entry = args[0] * args[1];
+                    instruction_length = 4;
+                }
+                3 => {
+                    let (_, addresses) = self.get_args(modes, 1);
+                    let entry = self.instructions.entry(addresses[0]).or_insert(0);
+                    *entry = input.pop().unwrap();
+                    instruction_length = 2;
+                }
+                4 => {
+                    let (args, _) = self.get_args(modes, 1);
+                    output.push(args[0]);
+                    if output.len() == 2 {
+                        self.counter += 2;
+                        return output;
+                    }
+                    instruction_length = 2;
+                }
+                5 => {
+                    let (args, _) = self.get_args(modes, 2);
+                    if args[0] != 0 {
+                        self.counter = args[1];
+                        instruction_length = 0;
+                    } else {
+                        instruction_length = 3;
+                    }
+                }
+                6 => {
+                    let (args, _) = self.get_args(modes, 2);
+                    if args[0] == 0 {
+                        self.counter = args[1];
+                        instruction_length = 0;
+                    } else {
+                        instruction_length = 3;
+                    }
+                }
+                7 => {
+                    let (args, addresses) = self.get_args(modes, 3);
+                    let res = match args[0] < args[1] {
+                        true => 1,
+                        false => 0,
+                    };
+                    let entry = self.instructions.entry(addresses[2]).or_insert(0);
+                    *entry = res;
+                    instruction_length = 4;
+                }
+                8 => {
+                    let (args, addresses) = self.get_args(modes, 3);
+                    let res = match args[0] == args[1] {
+                        true => 1,
+                        false => 0,
+                    };
+                    let entry = self.instructions.entry(addresses[2]).or_insert(0);
+                    *entry = res;
+                    instruction_length = 4;
+                }
+                9 => {
+                    let (args, _) = self.get_args(modes, 1);
+                    self.relative_base += args[0];
+                    instruction_length = 2;
+                }
+                _ => panic!(),
+            }
+            self.counter += instruction_length;
+        }
+        output
+    }
+
+    fn get_args(&mut self, modes: &[u32], num_args: usize) -> (Vec<i64>, Vec<i64>) {
+        let mut args: Vec<i64> = Vec::new();
+        let mut addresses: Vec<i64> = Vec::new();
+        for arg_count in 0..num_args {
+            let mut address = self.instructions[&(self.counter + arg_count as i64 + 1)];
+            let arg;
+            let mode = match arg_count {
+                0 => modes[2],
+                1 => modes[1],
+                2 => {
+                    if modes[0] == 1 {
+                        panic!()
+                    };
+                    modes[0]
+                }
+                _ => {
+                    panic!();
+                }
+            };
+            if mode == 0 {
+                arg = self.instructions.entry(address).or_insert(0);
+            } else if mode == 1 {
+                arg = &mut address;
+            } else if mode == 2 {
+                address = address + self.relative_base;
+                arg = self.instructions.entry(address).or_insert(0);
+            } else {
                 panic!();
             }
-        };
-        if mode == 0 {
-            arg = instructions.entry(address).or_insert(0);
-        } else if mode == 1 {
-            arg = &mut address;
-        } else if mode == 2 {
-            address = address + relative_base;
-            arg = instructions.entry(address).or_insert(0);
-        } else {
-            panic!();
+            args.push(*arg);
+            addresses.push(address);
         }
-        args.push(*arg);
-        addresses.push(address);
+        (args, addresses)
     }
-    (args, addresses)
 }
 
 fn get_contents(filename: &str) -> String {
