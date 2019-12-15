@@ -5,7 +5,17 @@ use std::io::Read;
 fn main() {
     let reaction_text = get_contents("input");
 
-    dbg!(get_num_ore(&reaction_text));
+    dbg!(get_num_ore(&reaction_text, 1));
+
+    let d_ore = (get_num_ore(&reaction_text, 100) - get_num_ore(&reaction_text, 1)) as f64 / 99.;
+
+    let mut num_fuel = 1_000_000_000_000 / d_ore as i64 - 20_000;
+
+    while dbg!(get_num_ore(&reaction_text, num_fuel)) < 1_000_000_000_000 {
+        num_fuel += 1;
+    }
+
+    dbg!(num_fuel - 1);
 }
 
 fn get_contents(filename: &str) -> String {
@@ -54,14 +64,14 @@ impl Reaction {
     }
 }
 
-fn get_num_ore(reaction_text: &str) -> i64 {
+fn get_num_ore(reaction_text: &str, num_fuel: i64) -> i64 {
     let reactions: Vec<Reaction> = reaction_text
         .lines()
         .map(|x| Reaction::from_string(x))
         .collect();
 
     let mut elements: HashMap<String, i64> = HashMap::new();
-    elements.insert("FUEL".to_string(), 1);
+    elements.insert("FUEL".to_string(), num_fuel);
 
     loop {
         for (element, element_amount) in elements.clone() {
@@ -90,7 +100,6 @@ fn get_num_ore(reaction_text: &str) -> i64 {
             .filter(|&(k, _)| *k != "ORE")
             .all(|(_, v)| *v < 0)
         {
-            dbg!(&elements);
             break;
         }
     }
@@ -114,7 +123,7 @@ mod tests {
              7 A, 1 E => 1 FUEL"
         );
 
-        assert!(get_num_ore(reaction_text) == 31);
+        assert!(get_num_ore(reaction_text, 1) == 31);
 
         let reaction_text = indoc!(
             "9 ORE => 2 A
@@ -126,7 +135,7 @@ mod tests {
              2 AB, 3 BC, 4 CA => 1 FUEL"
         );
 
-        assert!(get_num_ore(reaction_text) == 165);
+        assert!(get_num_ore(reaction_text, 1) == 165);
 
         let reaction_text = indoc!(
             "157 ORE => 5 NZVS
@@ -140,7 +149,7 @@ mod tests {
              3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT"
         );
 
-        assert!(get_num_ore(reaction_text) == 13312);
+        assert!(get_num_ore(reaction_text, 1) == 13312);
 
         let reaction_text = indoc!(
             "2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG
@@ -157,7 +166,7 @@ mod tests {
              176 ORE => 6 VJHF"
         );
 
-        assert!(get_num_ore(reaction_text) == 180697);
+        assert!(get_num_ore(reaction_text, 1) == 180697);
 
         let reaction_text = indoc!(
             "171 ORE => 8 CNZTR
@@ -179,6 +188,6 @@ mod tests {
              5 BHXH, 4 VRPVC => 5 LTCX"
         );
 
-        assert!(get_num_ore(reaction_text) == 2210736);
+        assert!(get_num_ore(reaction_text, 1) == 2210736);
     }
 }
