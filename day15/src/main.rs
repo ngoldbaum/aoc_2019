@@ -1,9 +1,184 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::Read;
 
 fn main() {
-    println!("Hello, world!");
+    let program = get_contents("input");
+
+    let mut robot = Robot::from_program(&program);
+
+    robot.build_map();
+
+    dbg!(bfs(&robot.map));
+}
+
+#[derive(Debug)]
+struct Robot {
+    computer: IntCodeComputer,
+    map: HashMap<(i64, i64), i64>,
+    position: (i64, i64),
+    path: Vec<(i64, i64)>,
+}
+
+fn bfs(map: &HashMap<(i64, i64), i64>) -> i64 {
+    let mut queue: VecDeque<((i64, i64), i64)> = VecDeque::new();
+    let mut visited: HashSet<(i64, i64)> = HashSet::new();
+
+    let mut startpos = (0, 0);
+
+    for (k, v) in map {
+        if *v == 2 {
+            startpos = *k;
+        }
+    }
+
+    queue.push_back((startpos, 0));
+    visited.insert(startpos);
+
+    let mut maxdist = 0;
+
+    while !(queue.len() == 0) {
+        let (position, dist) = queue.pop_front().unwrap();
+        if dist > maxdist {
+            maxdist = dist;
+        }
+        let (px, py) = position;
+        let search_positions = vec![(px, py + 1), (px, py - 1), (px - 1, py), (px + 1, py)];
+        for sp in search_positions {
+            let val = map[&sp];
+            if val != 0 && !visited.contains(&sp) {
+                queue.push_back((sp, dist + 1));
+                visited.insert(sp);
+            }
+        }
+    }
+
+    maxdist
+}
+
+impl Robot {
+    fn from_program(program: &str) -> Robot {
+        Robot {
+            computer: IntCodeComputer::from_program(program),
+            map: {
+                let mut m = HashMap::new();
+                m.insert((0, 0), 1);
+                m
+            },
+            position: (0, 0),
+            path: vec![(0, 0)],
+        }
+    }
+
+    fn build_map(&mut self) {
+        loop {
+            self.print_map();
+            if self.search() == 3 {
+                break;
+            }
+        }
+    }
+
+    fn print_map(&self) {
+        let mut maxx = 0i64;
+        let mut minx = 0i64;
+        let mut maxy = 0i64;
+        let mut miny = 0i64;
+
+        for position in self.map.keys() {
+            if position.0 < minx {
+                minx = position.0;
+            }
+            if position.0 > maxx {
+                maxx = position.0;
+            }
+            if position.1 < miny {
+                miny = position.1;
+            }
+            if position.1 > maxy {
+                maxy = position.1;
+            }
+        }
+
+        let mut output_screen: String = String::new();
+        output_screen.push_str(&format!(
+            "minx: {}, maxx: {}, miny: {}, maxy: {}\n",
+            minx, maxx, miny, maxy,
+        ));
+
+        for j in miny..maxy + 1 {
+            for i in minx..maxx + 1 {
+                if self.position == (i, j) {
+                    output_screen.push('D');
+                } else if self.map.contains_key(&(i, j)) {
+                    output_screen.push(match self.map[&(i, j)] {
+                        0 => '#',
+                        1 => '.',
+                        2 => 'o',
+                        _ => panic!(),
+                    });
+                } else {
+                    output_screen.push(' ');
+                }
+            }
+            output_screen.push_str("\n");
+        }
+        println!("{}", output_screen);
+    }
+
+    fn search(&mut self) -> i64 {
+        let (px, py) = self.position;
+        let mut output = None;
+        let search_positions = vec![(px, py + 1), (px, py - 1), (px - 1, py), (px + 1, py)];
+        let commands = 1i64..5;
+        for (search_position, command) in search_positions.iter().zip(commands) {
+            if !self.map.contains_key(&search_position) {
+                let mut o = self.computer.run(Some(command));
+                if o.len() != 1 {
+                    panic!();
+                }
+                let o = o.pop().unwrap();
+                self.map.insert(*search_position, o);
+                if o != 0 {
+                    self.path.push(self.position);
+                    self.position = *search_position
+                }
+                if o > 2 {
+                    panic!();
+                }
+                output = Some(o);
+                break;
+            }
+        }
+        if !self.map.contains_key(&self.position) {
+            panic!();
+        }
+        match output {
+            Some(output) => output,
+            None => {
+                let p = self.position;
+                let np = self.path.pop().unwrap();
+                let input;
+                if np.0 < p.0 {
+                    input = 3;
+                } else if np.0 > p.0 {
+                    input = 4;
+                } else if np.1 < p.1 {
+                    input = 2;
+                } else if np.1 > p.1 {
+                    input = 1;
+                } else {
+                    return 3;
+                }
+                let output = self.computer.run(Some(input)).pop().unwrap();
+                self.position = np;
+                if output != 1 {
+                    panic!()
+                }
+                output
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -14,7 +189,7 @@ struct IntCodeComputer {
 }
 
 impl IntCodeComputer {
-    fn run(&mut self, input: &Vec<i64>) -> Vec<i64> {
+    fn run(&mut self, input: Option<i64>) -> Vec<i64> {
         let mut input = input.clone();
         let mut output: Vec<i64> = Vec::new();
         while self.instructions[&self.counter] != 99 {
@@ -46,10 +221,11 @@ impl IntCodeComputer {
                 3 => {
                     let (_, addresses) = self.get_args(modes, 1);
                     let entry = self.instructions.entry(addresses[0]).or_insert(0);
-                    match input.pop() {
+                    match input {
                         Some(value) => *entry = value,
                         None => return output,
                     }
+                    input = None;
                     instruction_length = 2;
                 }
                 4 => {
