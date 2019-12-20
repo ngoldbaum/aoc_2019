@@ -3,115 +3,72 @@ use std::fs::File;
 use std::io::Read;
 
 fn main() {
-    let mut computer = IntCodeComputer::from_program(&get_contents("input"));
-    let output: Vec<u8> = computer.run(None).iter().map(|x| *x as u8).collect();
-    let map_str = std::str::from_utf8(&output).unwrap().trim();
-    println!("{}", &map_str);
-    let map: Vec<Vec<char>> = map_str.lines().map(|x| x.chars().collect()).collect();
-    let mut parsum = 0;
-    for j in 1..map.len() - 1 {
-        for i in 1..map[j].len() - 1 {
-            if (
-                map[j][i],
-                map[j - 1][i],
-                map[j + 1][i],
-                map[j][i - 1],
-                map[j][i + 1],
-            ) == ('#', '#', '#', '#', '#')
+    let contents = get_contents("input");
+    let mut beam_image: HashMap<(i64, i64), char> = HashMap::new();
+    let mut row = 1330;
+    while dbg!(get_nrow(row, &mut beam_image, &contents)) != 1 {
+        row += 1;
+        dbg!(row);
+    }
+    let mut dist = 1000000000.;
+    for row in 1330..1335 {
+        for i in 0..1500 {
+            if in_beam((i as i64, row as i64), &mut beam_image, &contents)
+                && in_beam(((i + 99) as i64, row as i64), &mut beam_image, &contents)
+                && in_beam((i as i64, (row + 99) as i64), &mut beam_image, &contents)
             {
-                parsum += i * j;
+                let score = i * 10000 + row;
+                if ((i as f64).powi(2) + (row as f64).powi(2)).sqrt() < dist {
+                    dist = ((i as f64).powi(2) + (row as f64).powi(2)).sqrt();
+                    dbg!(((i, row), score));
+                }
             }
         }
     }
-    dbg!(parsum);
-    let mut pos: Option<(i64, i64)> = None;
-    let mut direction: Option<Direction> = None;
-    for j in 0..map.len() {
-        for i in 0..map[j].len() {
-            if ['<', '^', '>', 'v'].contains(&map[j][i]) {
-                pos = Some((i as i64, j as i64));
-                direction = Some(get_direction(map[j][i]));
+    dbg!(dist);
+    //println!(
+    //    "{}",
+    //    beam_image
+    //        .iter()
+    //        .map(|x| x.iter().collect::<String>())
+    //        .collect::<Vec<String>>()
+    //        .join("\n")
+    //);
+}
+
+fn get_nrow(rownum: usize, beam_image: &mut HashMap<(i64, i64), char>, contents: &str) -> usize {
+    let mut nrow = 0;
+    for i in 0..1500 {
+        if in_beam((i as i64, rownum as i64), beam_image, contents) {
+            if in_beam(((i + 99) as i64, rownum as i64), beam_image, contents)
+                && in_beam((i as i64, (rownum + 99) as i64), beam_image, contents)
+            {
+                nrow += 1
             }
         }
     }
-    let pos = pos.unwrap();
-    let direction = direction.unwrap();
-    let mut robot = Robot::from(pos, direction, map);
-    while robot.position != pos {
-        robot.walk()
+    nrow
+}
+
+fn in_beam(coords: (i64, i64), beam_image: &mut HashMap<(i64, i64), char>, contents: &str) -> bool {
+    if beam_image.contains_key(&coords) {
+        return match beam_image[&coords] {
+            '#' => true,
+            '.' => false,
+            _ => panic!(),
+        };
     }
-}
-
-fn get_direction(c: char) -> Direction {
-    match c {
-        '>' => Direction::East,
-        '^' => Direction::North,
-        '<' => Direction::West,
-        'v' => Direction::South,
-        _ => panic!(),
-    }
-}
-
-#[derive(Debug)]
-enum Direction {
-    North,
-    East,
-    South,
-    West,
-}
-
-fn left(d: Direction) -> Direction {
-    match d {
-        Direction::North => Direction::West,
-        Direction::East => Direction::North,
-        Direction::South => Direction::East,
-        Direction::West => Direction::South,
-    }
-}
-
-fn right(d: Direction) -> Direction {
-    match d {
-        Direction::North => Direction::East,
-        Direction::East => Direction::South,
-        Direction::South => Direction::West,
-        Direction::West => Direction::North,
-    }
-}
-
-#[derive(Debug)]
-struct Robot {
-    position: (i64, i64),
-    path: Vec<(i64, i64)>,
-    direction: Direction,
-    map: Vec<Vec<char>>,
-}
-
-impl Robot {
-    fn from(pos: (i64, i64), direction: Direction, map: Vec<Vec<char>>) -> Robot {
-        let path = vec![pos];
-        Robot {
-            position: pos,
-            path: path,
-            direction: direction,
-            map: map,
-        }
-    }
-
-    fn walk(&mut self) {
-        let px = self.position.0 as usize;
-        let py = self.position.1 as usize;
-        let mut neighborhood: [[char; 3]; 3] = [[' '; 3]; 3];
-        for (i, pi) in (px - 1..px + 2).enumerate() {
-            for (j, pj) in (py - 1..py + 2).enumerate() {
-                neighborhood[j][i] = self.map[pj][pi];
-            }
-        }
-        let neighborhood: Vec<String> = neighborhood
-            .iter()
-            .map(|x| x.iter().collect::<String>())
-            .collect();
-        let neighborhood: String = neighborhood.join("\n");
-        println!("{}", neighborhood);
+    let mut computer = IntCodeComputer::from_program(contents);
+    let output: Vec<i64> = computer.run(Some(coords.0 as i64));
+    assert!(output.len() == 0);
+    let output: Vec<i64> = computer.run(Some(coords.1 as i64));
+    assert!(output.len() == 1);
+    if output[0] == 1 {
+        beam_image.insert(coords, '#');
+        return true;
+    } else {
+        beam_image.insert(coords, '.');
+        return false;
     }
 }
 
@@ -268,7 +225,6 @@ impl IntCodeComputer {
 
 fn get_contents(filename: &str) -> String {
     let mut f = File::open(filename).expect("file not found");
-
     let mut contents = String::new();
     f.read_to_string(&mut contents)
         .expect("something went wrong reading the file");
